@@ -1,0 +1,5 @@
+This is a simple shell script based initrd system. You should make edits to init.env and
+create a configuration file (see initrd.rescue) which adds the required tasks and files
+to the initrd.
+
+Generate the initrd by issuing ./gen_initrd.sh <config> <output>
