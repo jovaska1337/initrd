@@ -1,6 +1,19 @@
 #!/bin/bash
 # init.sh - /sbin/init for simple initramfs
 
+# called when exiting abnormally
+on_exit() {
+	echo "${R}init exited abnormally.${O}"
+	while true; do
+		# prefer to use proper shell with tty, fallback to bash
+		shell "Emergency shell, use poweroff/reboot to exit." \
+		|| ( echo "Emergency shell, use poweroff/reboot to exit." \
+			&& bash )
+		sleep 1
+	done
+}
+trap on_exit EXIT
+
 # export init environment
 while read line; do
 	# ignore empty lines
@@ -37,8 +50,53 @@ done < /etc/init.env
 
 # determine action
 case "${1,,}" in
-	# called by kernel
-	'')
+	# when init pivot_roots to this script
+	poweroff|reboot|halt)
+
+	# export correct verb (halt and poweroff are the same thing)
+	if [[ "${1,,}" == reboot ]]; then
+		export INIT_VERB=reboot
+	else
+		export INIT_VERB=halt
+	fi
+
+	# verb specific environment
+	export ROOT=/old_root
+
+	# greet the user
+	init_greet
+
+	# start udev
+	msg "Initializing ${R}udev daemon${O}..."
+	tab +1
+	run "Start ${R}udev${O}" quiet udevd -d
+	run "Trigger ${R}udev${O} events" quiet udevadm trigger
+	run "Wait for ${R}udev${O} to settle" quiet udevadm settle
+	tab -1
+
+	# parse kernel command line
+	parse_cmdline
+
+	# execute halt tasks
+	init_tasks || shell
+
+	# debug shell activated via kernel cmdline
+	[[ "$initrd_break" == 1 ]] && shell "Breakpoint ${P}initrd.break${O} before ${R}${INIT_VERB}${O}."
+
+	# stop udev
+	msg "Stopping ${R}udev daemon${O}..."
+	tab +1
+	run "Ask ${R}udev${O} to stop" quiet udevadm control -e
+	tab -1
+
+	# we need -f on busybox to skip service manager
+	msg "System will ${INIT_VERB} now."
+	[[ "$INIT_VERB" == reboot ]] && reboot -f || poweroff -f
+	trap - EXIT
+	;;
+
+	# called by kernel (command line can be used to put anything here)
+	*)
 	# verb specific environment
 	export INIT_VERB=boot
 	export ROOT=/new_root
@@ -106,55 +164,7 @@ case "${1,,}" in
 
 	# switch to the new root
 	msg "Switching root to ${C}${ROOT}${O} and executing ${Y}${INIT}${O}..."
+	trap - EXIT
 	exec switch_root "$ROOT" "$INIT"
-	;;
-
-	# when init pivot_roots to this script
-	poweroff|reboot|halt)
-
-	# export correct verb (halt and poweroff are the same thing)
-	if [[ "${1,,}" == reboot ]]; then
-		export INIT_VERB=reboot
-	else
-		export INIT_VERB=halt
-	fi
-
-	# verb specific environment
-	export ROOT=/old_root
-
-	# greet the user
-	init_greet
-
-	# start udev
-	msg "Initializing ${R}udev daemon${O}..."
-	tab +1
-	run "Start ${R}udev${O}" quiet udevd -d
-	run "Trigger ${R}udev${O} events" quiet udevadm trigger
-	run "Wait for ${R}udev${O} to settle" quiet udevadm settle
-	tab -1
-
-	# parse kernel command line
-	parse_cmdline
-
-	# execute halt tasks
-	init_tasks || shell
-
-	# debug shell activated via kernel cmdline
-	[[ "$initrd_break" == 1 ]] && shell "Breakpoint ${P}initrd.break${O} before ${R}${INIT_VERB}${O}."
-
-	# stop udev
-	msg "Stopping ${R}udev daemon${O}..."
-	tab +1
-	run "Ask ${R}udev${O} to stop" quiet udevadm control -e
-	tab -1
-
-	# we need -f on busybox to skip service manager
-	msg "System will ${INIT_VERB} now."
-	[[ "$INIT_VERB" == reboot ]] && reboot -f || poweroff -f
-	;;
-
-	*)
-	echo "Unknown verb '${1}'"
-	exit 1
 	;;
 esac

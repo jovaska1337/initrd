@@ -13,8 +13,12 @@ declare -gA __env_block
 
 # include executable ${1} (with deps) in target optionally at ${2}
 include_exe() {
-	if [[ ! -f "$1" ]]; then
-		echo "Executable '${1}' doesn't exist."
+	local exe="$1"
+	if [[ "${exe:0:1}" != / ]]; then
+		exe="$(command -v "$exe")"
+		[[ $? != 0 ]] && return 1
+	elif [[ ! -f "$exe" ]]; then
+		echo "Executable '${exe}' doesn't exist."
 		return 1
 	fi
 
@@ -24,7 +28,7 @@ include_exe() {
 
 	local temp
 	local line
-	local check=($(deps "$1")) # initial deps
+	local check=($(deps "$exe")) # initial deps
 	local known=()
 
 	# recursive library dependencies
@@ -72,12 +76,12 @@ include_exe() {
 	done
 
 	# target path
-	[[ "$2" ]] && dst="$2" || dst="$1"
+	[[ "$2" ]] && dst="$2" || dst="$exe"
 	
 	# add as symlink (saves quite a bit of space)
 	if [[ -L "$1" ]]; then
 		# real path
-		temp="$(readlink -f "$1")"
+		temp="$(readlink -f "$exe")"
 
 		# add real executable
 		include_file "$temp" "$temp" +x || return 1
@@ -87,7 +91,7 @@ include_exe() {
 
 	# add as file
 	else
-		include_file "$1" "$dst" +x || return 1
+		include_file "$exe" "$dst" +x || return 1
 	fi
 }
 
@@ -101,6 +105,12 @@ include_symlink() {
 	# root filesystem
 	declare -g initrd
 	[[ -d "$initrd" ]] || return 1
+
+	# source is same as destination (makes no sense)
+	if [[ "$1" == "$2" ]]; then
+		echo "${Y}Warning${O}: Ignoring circular symlink '${1}'"
+		return 0
+	fi
 
 	local src="${initrd}${2}"
 	local dst="$(realpath -sm --relative-to="$(dirname "$2")" "$1")"
@@ -145,7 +155,7 @@ include_file() {
 		if cmp -s "$file" "$1"; then
 			return 0
 		else
-			echo "Warning, removing '${file}'."
+			echo "${Y}Warning${O}: removing '${file}'."
 			rm "$file" || return 1
 		fi
 	fi
@@ -236,7 +246,7 @@ include_task() {
 			i=1;;
 		reboot) n=reboot
 			i=2;;
-		*      )
+		*)
 			echo "Unknown verb ${2}."
 		   	return 1
 		;;
@@ -278,7 +288,7 @@ source_env() {
 			local key
 			local val
 			parse_kv key val "$line" || return 1
-			config_add include_env "${key}" "${val}"
+			include_env "${key}" "${val}"
 
 		# malformed line
 		else
@@ -359,6 +369,7 @@ config_eval() {
 			echo "Unknown directive '${args[0]}'"
 			return 1
 		fi
+		echo "${G}${args[0]}${O} ${args[@]:1}"
 		if ! "${args[@]}"; then
 			echo "Failed to evaluate directive '${args[@]}'"
 			return 1

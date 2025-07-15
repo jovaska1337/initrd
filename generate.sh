@@ -11,6 +11,9 @@ declare -g root="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
 . "${root}/lib/utils.sh"  || exit 1
 . "${root}/lib/config.sh" || exit 1
 
+# use color library from init side
+. "${root}/init/lib/color.sh" || exit 1
+
 # automatic cleanup
 clean() {
 	declare -g initrd
@@ -20,7 +23,7 @@ clean() {
 	local tmp
 	for tmp in "$initrd" "$ucode"; do
 		if [[ -d "$tmp" ]]; then
-			echo "Cleaning up ${tmp}."
+			echo "Cleaning up ${B}${tmp}${O}."
 			rm -rf "$tmp"
 		fi
 	done
@@ -45,12 +48,6 @@ main() {
 	# we need the absolute path to the config
 	config="$(realpath "$config")"
 
-	# query GCC major version
-	local gcc_major="$(gcc --version | head -n1 | cut -d\  -f4 | cut -d. -f1)"
-	[[ "$gcc_major" ]] || return 1
-	
-	echo "GCC major version: ${gcc_major}"
-
 	# temporary directory for initrd filesystem
 	declare -g initrd="$(mktemp -d)"
 	cd "$initrd" || return 1
@@ -66,19 +63,25 @@ main() {
 	config_add include_symlink /lib /usr/lib
 	config_add include_symlink /lib /usr/lib64
 	config_add include_symlink /bin /usr/bin
+	config_add include_symlink /bin /usr/sbin
+	config_add include_symlink /sbin /bin
 
 	# always include busybox for base utilities
-	config_add include_busybox /bin/busybox
+	config_add include_busybox busybox
 
 	# busybox switch_root doesn't move mountpoints
-	config_add include_exe /bin/switch_root
+	# (if this isn't util-linux switch_root we're SOL)
+	config_add include_exe switch_root
 
 	# add bash for shell
-	config_add include_exe /bin/bash
+	config_add include_exe bash
 
-	# add init script + default environment
-	config_add include_file "${root}/init/init.sh" /init +x
-	config_add source_env   "${root}/default.env"
+	# add init script
+	config_add include_file "${root}/init/init.sh" /bin/init +x
+	config_add include_symlink /bin/init /init
+
+	# source default environment block
+	config_add source_env "${root}/default.env"
 
 	# add init library
 	local temp name
@@ -90,13 +93,13 @@ main() {
 	done < <(find "${root}/init/lib" -maxdepth 1 -mindepth 1 -type f)
 
 	# add udev + rules (required by init)
-	config_add include_exe /bin/udevadm
+	config_add include_exe udevadm
 	config_add include_exe /lib/systemd/systemd-udevd /bin/udevd
 	config_add include_dir /etc/udev
 	config_add include_dir /lib/udev
 
 	# add libgcc_s.so, not shown by ldd
-	config_add include_file "/usr/lib/gcc/x86_64-pc-linux-gnu/${gcc_major}/libgcc_s.so.1" /lib/libgcc_s.so.1 +x
+	config_add include_file "$(gcc -print-file-name=libgcc_s.so.1)" /lib/libgcc_s.so.1 +x
 
 	# task indecies
 	declare -ga index=(0 0 0)
@@ -118,7 +121,7 @@ main() {
 		echo "Failed to save environment block."
 		return 1
 	fi
-	
+
 	# check that at least one task is defined for boot
 	if [[ "${index[0]}" == 0 ]]; then
 		echo "Configuration doesn't define boot tasks!"
@@ -191,11 +194,11 @@ main() {
 	cd "$ucode"|| return 1
 	mkdir -p kernel/x86/microcode || return 1
 	if [[ -d /lib/firmware/intel-ucode ]]; then
-		echo "Adding Intel microcode..."
+		echo "Adding ${R}Intel microcode${O}..."
 		cat /lib/firmware/intel-ucode/* > kernel/x86/microcode/GenuineIntel.bin
 	fi
 	if [[ -d /lib/firmware/amd-ucode/microcode_amd ]]; then
-		echo "Adding AMD microcode..."
+		echo "Adding ${R}AMD microcode${O}..."
 		cat /lib/firmware/amd-ucode/microcode_amd/* > kernel/x86/microcode/AuthenticAMD.bin
 	fi
 
@@ -203,15 +206,15 @@ main() {
 	echo 1 > early_cpio
 
 	# generate microcode cpio image (must be uncompressed)
-	echo "Generating early cpio image..."
+	echo "Generating ${R}early cpio image${O}..."
 	find . ! -path . | cpio -ovH newc > "$target" || return 1
 
 	# generate initrd and compress cpio image
-	echo "Generating compressed initrd cpio image..."
+	echo "Generating ${R}compressed initrd cpio image${O}..."
 	cd "$initrd" || return 1
 	find . ! -path . | cpio -ovH newc | xz --check=crc32 --lzma2=dict=1MiB >> "$target" || return 1
 
-	echo "Initrd image at ${target} created successfully."
+	echo "Initrd image at ${Y}${target}${O} created successfully."
 	return 0
 }
 

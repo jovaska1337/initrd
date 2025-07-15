@@ -13,7 +13,7 @@ fi
 msg "Mode ${R}copy to ram${O}."
 run "Mount tmpfs" quiet mount -t tmpfs none "$ROOT" || exit 1
 msg "Unpacking squashfs image..."
-if unsquashfs -dest "$ROOT" "$image"; then
+if unsquashfs -dest "$ROOT" "$ROOT_IMAGE"; then
 	msg "Successfully unpacked image" 1
 else
 	msg "Failed to unpack image." 3

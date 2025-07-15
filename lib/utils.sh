@@ -68,7 +68,7 @@ key_diff() {
 
 # parse environment variable key-value pair
 # $1 = key (nameref)
-# $2 = val (namereg)
+# $2 = val (nameref)
 # $3 = input
 parse_kv() {
 	local -n K="$1"
